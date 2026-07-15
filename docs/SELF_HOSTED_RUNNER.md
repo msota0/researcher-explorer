@@ -35,7 +35,7 @@ campus firewall both possible and safe.
 
 3. **Run the service under an account with deploy rights.** The runner account
    must be able to:
-   - write to `C:\rex\www` and `C:\rex\researcher-explorer\backend`, and
+   - write to `C:\projects\www` and `C:\projects\researcher-explorer\backend`, and
    - restart the `RexBackend` service (`Restart-Service`).
 
    Either run the runner service as an admin account, or grant a dedicated
@@ -74,6 +74,6 @@ each deploy runs.
 Set in `deploy.yml` / `refresh-data.yml` `env:` — change them there if your
 layout differs:
 
-- `BACKEND_DIR = C:\rex\researcher-explorer\backend`
-- `WWW_DIR     = C:\rex\www`
+- `BACKEND_DIR = C:\projects\researcher-explorer\backend`
+- `WWW_DIR     = C:\projects\www`
 - `SERVICE     = RexBackend`

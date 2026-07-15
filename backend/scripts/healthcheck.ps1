@@ -21,7 +21,7 @@
   Register it (run once, elevated) to fire every 5 minutes:
 
     $action  = New-ScheduledTaskAction -Execute "powershell.exe" `
-      -Argument '-NoProfile -ExecutionPolicy Bypass -File "C:\rex\researcher-explorer\backend\scripts\healthcheck.ps1"'
+      -Argument '-NoProfile -ExecutionPolicy Bypass -File "C:\projects\researcher-explorer\backend\scripts\healthcheck.ps1"'
     $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
       -RepetitionInterval (New-TimeSpan -Minutes 5)
     Register-ScheduledTask -TaskName "RexHealthcheck" -Action $action -Trigger $trigger `
@@ -33,7 +33,7 @@ param(
     [string]$BackendService = "RexBackend",
     [string]$DbService      = "postgresql-x64-16",
     [string]$WebService     = "W3SVC",   # IIS. For Nginx-as-NSSM, pass its service name.
-    [string]$LogFile        = "C:\rex\logs\healthcheck.log",
+    [string]$LogFile        = "C:\projects\logs\healthcheck.log",
     [int]   $HealthRetries  = 3
 )
 

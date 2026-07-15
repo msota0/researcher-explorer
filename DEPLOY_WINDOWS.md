@@ -45,7 +45,7 @@ Administrator).
 2. Create a venv and install deps:
 
    ```powershell
-   cd C:\rex\researcher-explorer\backend
+   cd C:\projects\researcher-explorer\backend
    python -m venv .venv
    .\.venv\Scripts\Activate.ps1
    pip install -r requirements.txt
@@ -53,7 +53,7 @@ Administrator).
 
 ## 3. Production `.env`
 
-Create `C:\rex\researcher-explorer\backend\.env` (loaded automatically by
+Create `C:\projects\researcher-explorer\backend\.env` (loaded automatically by
 `config.py`):
 
 ```dotenv
@@ -62,7 +62,7 @@ OPENALEX_MAILTO=your.real.email@olemiss.edu
 UM_INSTITUTION_ID=I368840534
 
 # Windows path for the importer snapshot (the default /data/... is Linux-only):
-SNAPSHOT_PATH=C:\rex\data\um_authors.jsonl
+SNAPSHOT_PATH=C:\projects\researcher-explorer\data\um_authors.jsonl
 
 # Pool sized for 4 workers; OpenAlex rate is per process.
 DB_POOL_SIZE=10
@@ -84,8 +84,8 @@ and database, migrates, imports, and pre-warms the cache — reading `.env` as t
 single source of truth. From the backend directory, in an elevated PowerShell:
 
 ```powershell
-cd C:\rex\researcher-explorer\backend
-New-Item -ItemType Directory -Force C:\rex\data | Out-Null
+cd C:\projects\researcher-explorer\backend
+New-Item -ItemType Directory -Force C:\projects\researcher-explorer\data | Out-Null
 .\scripts\bootstrap.ps1        # prompts once for the Postgres superuser password
 ```
 
@@ -96,9 +96,9 @@ default location. It's safe to re-run.
 **Manual option.** If you'd rather run each step yourself:
 
 ```powershell
-cd C:\rex\researcher-explorer\backend
+cd C:\projects\researcher-explorer\backend
 .\.venv\Scripts\Activate.ps1
-New-Item -ItemType Directory -Force C:\rex\data | Out-Null
+New-Item -ItemType Directory -Force C:\projects\researcher-explorer\data | Out-Null
 
 # create role + database (idempotent); prompts for the superuser password
 $env:PGPASSWORD = Read-Host "postgres password"
@@ -135,12 +135,12 @@ wrapped as a service by **NSSM** so it auto-starts and restarts on crash.
 2. Install the service (one line):
 
    ```powershell
-   nssm install RexBackend "C:\rex\researcher-explorer\backend\.venv\Scripts\python.exe" "-m uvicorn app.main:app --host 127.0.0.1 --port 8001 --workers 4"
-   nssm set RexBackend AppDirectory "C:\rex\researcher-explorer\backend"
-   nssm set RexBackend AppStdout "C:\rex\logs\backend.out.log"
-   nssm set RexBackend AppStderr "C:\rex\logs\backend.err.log"
+   nssm install RexBackend "C:\projects\researcher-explorer\backend\.venv\Scripts\python.exe" "-m uvicorn app.main:app --host 127.0.0.1 --port 8001 --workers 4"
+   nssm set RexBackend AppDirectory "C:\projects\researcher-explorer\backend"
+   nssm set RexBackend AppStdout "C:\projects\logs\backend.out.log"
+   nssm set RexBackend AppStderr "C:\projects\logs\backend.err.log"
    nssm set RexBackend Start SERVICE_AUTO_START
-   New-Item -ItemType Directory -Force C:\rex\logs | Out-Null
+   New-Item -ItemType Directory -Force C:\projects\logs | Out-Null
    nssm start RexBackend
    ```
 
@@ -155,12 +155,12 @@ public internet directly.
 On a machine with Node (can be the server):
 
 ```powershell
-cd C:\rex\researcher-explorer\frontend
+cd C:\projects\researcher-explorer\frontend
 npm ci
 npm run build          # outputs to .\dist
 ```
 
-Copy `dist\` to where IIS will serve it, e.g. `C:\rex\www`.
+Copy `dist\` to where IIS will serve it, e.g. `C:\projects\www`.
 
 ## 8. IIS: static site + reverse proxy + HTTPS
 
@@ -169,9 +169,9 @@ Copy `dist\` to where IIS will serve it, e.g. `C:\rex\www`.
    (Microsoft Web Platform Installer or standalone MSIs).
 3. In IIS Manager → server node → **Application Request Routing Cache** →
    *Server Proxy Settings* → tick **Enable proxy**.
-4. Create a site (or use Default Web Site) with physical path `C:\rex\www`.
+4. Create a site (or use Default Web Site) with physical path `C:\projects\www`.
 5. Add a reverse-proxy rewrite rule so `/api/*` goes to uvicorn. Put this
-   `web.config` in `C:\rex\www`:
+   `web.config` in `C:\projects\www`:
 
    ```xml
    <?xml version="1.0" encoding="UTF-8"?>
@@ -247,14 +247,14 @@ Register it to run every 5 minutes (elevated PowerShell):
 
 ```powershell
 $action  = New-ScheduledTaskAction -Execute "powershell.exe" `
-  -Argument '-NoProfile -ExecutionPolicy Bypass -File "C:\rex\researcher-explorer\backend\scripts\healthcheck.ps1"'
+  -Argument '-NoProfile -ExecutionPolicy Bypass -File "C:\projects\researcher-explorer\backend\scripts\healthcheck.ps1"'
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
   -RepetitionInterval (New-TimeSpan -Minutes 5)
 Register-ScheduledTask -TaskName "RexHealthcheck" -Action $action -Trigger $trigger `
   -RunLevel Highest -User "SYSTEM"
 ```
 
-It logs to `C:\rex\logs\healthcheck.log`. Pass `-WebService RexNginx` if you use
+It logs to `C:\projects\logs\healthcheck.log`. Pass `-WebService RexNginx` if you use
 the Nginx-as-a-service setup above. For outage *alerting* (email/Teams), point an
 external uptime monitor at your public URL, or extend the script.
 
@@ -274,10 +274,10 @@ setup in *this* runbook is still the one-time baseline the pipeline builds on.
 |------|---------|
 | Restart backend | `nssm restart RexBackend` |
 | Stop / start | `nssm stop RexBackend` / `nssm start RexBackend` |
-| Backend logs | `Get-Content C:\rex\logs\backend.err.log -Tail 100 -Wait` |
+| Backend logs | `Get-Content C:\projects\logs\backend.err.log -Tail 100 -Wait` |
 | Refresh author data | `python -m app.importer` then `python -m app.prewarm` |
 | Rebuild cache from scratch | `python -m app.prewarm --force` |
-| Deploy frontend change | `npm run build` → copy `dist\*` to `C:\rex\www` |
+| Deploy frontend change | `npm run build` → copy `dist\*` to `C:\projects\www` |
 | Deploy backend change | pull code → `nssm restart RexBackend` |
 
 ## When you outgrow this
