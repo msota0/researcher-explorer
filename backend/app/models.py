@@ -60,3 +60,8 @@ class GraphPayload(BaseModel):
     nodes: list[GraphNode]
     edges: list[GraphEdge]
     truncated: bool = False
+
+
+class GraphLinks(BaseModel):
+    """Just edges — used to fill in connections among already-loaded nodes."""
+    edges: list[GraphEdge] = []

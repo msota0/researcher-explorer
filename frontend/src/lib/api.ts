@@ -2,6 +2,7 @@ import type {
   AuthorDetail,
   BrowseResponse,
   BrowseSort,
+  GraphEdge,
   GraphPayload,
   SearchHit,
 } from "../types";
@@ -28,5 +29,10 @@ export const api = {
   expand: (id: string, depth = 1, maxPerNode = 40) =>
     jget<GraphPayload>(
       `/api/graph/expand?author_id=${id}&depth=${depth}&max_per_node=${maxPerNode}`,
+    ),
+
+  connectVisible: (ids: string[]) =>
+    jget<{ edges: GraphEdge[] }>(
+      `/api/graph/links?ids=${ids.map(encodeURIComponent).join(",")}`,
     ),
 };

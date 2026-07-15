@@ -1,21 +1,26 @@
 import { useEffect, useState } from "react";
+import type { Core } from "cytoscape";
 import { api } from "../lib/api";
+import { GraphStore } from "../lib/graphStore";
+import { egoNetwork, exportEgoJson, exportEgoPng } from "../lib/extract";
 import type { AuthorDetail } from "../types";
 
 interface Props {
   authorId: string | null;
+  cy: Core | null;
+  store: GraphStore;
   onClose: () => void;
-  onExpand: (id: string) => void;
-  isExpanded: boolean;
-  isExpanding: boolean;
+  open: boolean;
+  onToggle: () => void;
 }
 
 export function SidePanel({
   authorId,
+  cy,
+  store,
   onClose,
-  onExpand,
-  isExpanded,
-  isExpanding,
+  open,
+  onToggle,
 }: Props) {
   const [detail, setDetail] = useState<AuthorDetail | null>(null);
   const [loading, setLoading] = useState(false);
@@ -32,16 +37,38 @@ export function SidePanel({
 
   if (!authorId) return null;
 
+  // Collapsed: leave a small tab on the right edge to reveal the panel again.
+  if (!open) {
+    return (
+      <button
+        onClick={onToggle}
+        title="Show author panel"
+        className="absolute right-3 top-16 z-10 flex items-center gap-2 bg-panel/90 backdrop-blur border border-line rounded-lg px-3 py-2 text-xs font-medium text-slate-200 hover:bg-line/50"
+      >
+        Author <span className="text-accent">‹</span>
+      </button>
+    );
+  }
+
   return (
-    <aside className="absolute right-0 top-0 bottom-0 w-[380px] bg-panel/95 backdrop-blur border-l border-line p-4 overflow-y-auto z-10">
-      <div className="flex items-start justify-between mb-3">
+    <aside className="absolute right-0 top-16 bottom-0 w-[380px] bg-panel/95 backdrop-blur border-l border-t border-line rounded-tl-lg p-4 overflow-y-auto z-10">
+      <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm uppercase tracking-wide text-slate-400">Author</h2>
-        <button
-          onClick={onClose}
-          className="text-slate-400 hover:text-slate-200 text-sm"
-        >
-          close
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onToggle}
+            title="Collapse author panel"
+            className="flex items-center gap-1 rounded-md bg-panel2 border border-line hover:bg-line/60 text-[11px] text-slate-300 px-2 py-1 leading-none"
+          >
+            Hide <span className="text-accent">›</span>
+          </button>
+          <button
+            onClick={onClose}
+            className="rounded-md bg-panel2 border border-line hover:bg-line/60 text-[11px] text-slate-300 px-2 py-1 leading-none"
+          >
+            close
+          </button>
+        </div>
       </div>
 
       {loading && <div className="text-sm text-slate-400">Loading…</div>}
@@ -69,19 +96,38 @@ export function SidePanel({
             <Stat label="h-index" value={detail.h_index ?? "—"} />
           </div>
 
-          <div className="mt-4 flex gap-2">
-            <button
-              disabled={isExpanded || isExpanding}
-              onClick={() => onExpand(detail.id)}
-              className="flex-1 rounded-md bg-accent/20 border border-accent/40 hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed text-sm py-1.5"
-            >
-              {isExpanding
-                ? "Expanding…"
-                : isExpanded
-                  ? "Already expanded"
-                  : "Expand collaborators"}
-            </button>
-          </div>
+          <Section title="This author's network">
+            {(() => {
+              const count = egoNetwork(store, detail.id).nodes.length - 1;
+              return (
+                <>
+                  <div className="text-xs text-slate-500 mb-2">
+                    {count > 0
+                      ? `${count} collaborator${count === 1 ? "" : "s"} currently in the graph — the same subset highlighted on hover.`
+                      : "No collaborators loaded yet. Expand to build the network."}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      disabled={count === 0}
+                      onClick={() => exportEgoJson(store, detail.id)}
+                      className="flex-1 rounded-md bg-panel2 border border-line hover:border-accent/60 disabled:opacity-40 disabled:cursor-not-allowed text-xs py-1.5"
+                      title="Download this sub-network as JSON (nodes + edges)"
+                    >
+                      Extract JSON
+                    </button>
+                    <button
+                      disabled={count === 0 || !cy}
+                      onClick={() => cy && exportEgoPng(cy, store, detail.id)}
+                      className="flex-1 rounded-md bg-panel2 border border-line hover:border-accent/60 disabled:opacity-40 disabled:cursor-not-allowed text-xs py-1.5"
+                      title="Download this sub-network as a PNG image"
+                    >
+                      Extract PNG
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
+          </Section>
 
           <Section title="Affiliations">
             {detail.affiliations.length === 0 ? (

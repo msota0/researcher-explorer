@@ -5,12 +5,26 @@ import { SPREAD_LAYOUT } from "./GraphView";
 interface Props {
   cy: Core | null;
   store: GraphStore;
-  // The side panel (380px) opens over the right edge; shift the toolbar clear
-  // of it so the controls stay reachable while inspecting an author.
-  panelOpen?: boolean;
+  onConnectVisible?: () => void;
+  connecting?: boolean;
+  // When an author is selected, the "Expand collaborators" action lives here in
+  // the footer (instead of being embedded in the right side panel).
+  selectedId?: string | null;
+  onExpand?: (id: string) => void;
+  isExpanded?: boolean;
+  isExpanding?: boolean;
 }
 
-export function Toolbar({ cy, store, panelOpen }: Props) {
+export function Toolbar({
+  cy,
+  store,
+  onConnectVisible,
+  connecting,
+  selectedId,
+  onExpand,
+  isExpanded,
+  isExpanding,
+}: Props) {
   const zoom = (factor: number) => {
     if (!cy) return;
     cy.zoom({
@@ -55,10 +69,7 @@ export function Toolbar({ cy, store, panelOpen }: Props) {
   };
 
   return (
-    <div
-      className="absolute top-16 z-10 flex flex-col gap-2 items-end transition-[right] duration-200"
-      style={{ right: panelOpen ? 392 : 12 }}
-    >
+    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex flex-wrap gap-2 items-stretch justify-center max-w-[90%]">
       {/* Zoom */}
       <Group label="Zoom">
         <Btn onClick={() => zoom(1.25)} title="Zoom in">
@@ -75,28 +86,32 @@ export function Toolbar({ cy, store, panelOpen }: Props) {
         </Btn>
       </Group>
 
-      {/* Navigate (pan) — arranged as a directional pad */}
+      {/* Navigate (pan) */}
       <Group label="Navigate">
-        <div className="grid grid-cols-3 grid-rows-2 gap-1">
-          <span />
-          <Btn onClick={() => pan(0, -1)} title="Pan up">
-            ↑
-          </Btn>
-          <span />
-          <Btn onClick={() => pan(-1, 0)} title="Pan left">
-            ←
-          </Btn>
-          <Btn onClick={() => pan(0, 1)} title="Pan down">
-            ↓
-          </Btn>
-          <Btn onClick={() => pan(1, 0)} title="Pan right">
-            →
-          </Btn>
-        </div>
+        <Btn onClick={() => pan(-1, 0)} title="Pan left">
+          ←
+        </Btn>
+        <Btn onClick={() => pan(0, -1)} title="Pan up">
+          ↑
+        </Btn>
+        <Btn onClick={() => pan(0, 1)} title="Pan down">
+          ↓
+        </Btn>
+        <Btn onClick={() => pan(1, 0)} title="Pan right">
+          →
+        </Btn>
       </Group>
 
       {/* Layout + export */}
       <Group label="Graph">
+        {onConnectVisible && (
+          <Btn
+            onClick={onConnectVisible}
+            title="Draw co-authorship links among the authors already on screen (adds no new nodes)"
+          >
+            {connecting ? "connecting…" : "⇄ connect"}
+          </Btn>
+        )}
         <Btn onClick={relayout} title="Re-spread the nodes">
           ⤢ spread
         </Btn>
@@ -107,6 +122,23 @@ export function Toolbar({ cy, store, panelOpen }: Props) {
           JSON
         </Btn>
       </Group>
+
+      {/* Selected author — expand action moved out of the right panel */}
+      {selectedId && onExpand && (
+        <Group label="Author">
+          <Btn
+            onClick={() => onExpand(selectedId)}
+            disabled={isExpanded || isExpanding}
+            title="Load this author's collaborators into the graph"
+          >
+            {isExpanding
+              ? "Expanding…"
+              : isExpanded
+                ? "Already expanded"
+                : "⊕ Expand collaborators"}
+          </Btn>
+        </Group>
+      )}
     </div>
   );
 }
@@ -123,7 +155,7 @@ function Group({
       <div className="text-[9px] uppercase tracking-wide text-slate-500 px-1 pb-1">
         {label}
       </div>
-      <div className="flex flex-wrap gap-1 justify-end">{children}</div>
+      <div className="flex flex-wrap gap-1 justify-center">{children}</div>
     </div>
   );
 }
@@ -132,16 +164,19 @@ function Btn({
   onClick,
   children,
   title,
+  disabled,
 }: {
   onClick: () => void;
   children: React.ReactNode;
   title?: string;
+  disabled?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       title={title}
-      className="min-w-[34px] px-2 h-7 rounded bg-panel2 border border-line hover:bg-line/60 text-xs text-slate-200"
+      disabled={disabled}
+      className="min-w-[34px] px-2 h-7 rounded bg-panel2 border border-line hover:bg-line/60 disabled:opacity-40 disabled:cursor-not-allowed text-xs text-slate-200"
     >
       {children}
     </button>

@@ -28,7 +28,9 @@ export function Legend({ encoding }: { encoding: EncodingOpts }) {
       {parts.map((p, i) => (
         <div key={i}>· {p}</div>
       ))}
-      <div className="text-slate-500 mt-1">double-click a node to expand</div>
+      <div className="text-slate-500 mt-1">
+        click a node to spotlight · Expand (panel) or double-click to grow
+      </div>
     </div>
   );
 }

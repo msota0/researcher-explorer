@@ -1,0 +1,81 @@
+name: Deploy (production)
+
+# Manual only: click "Run workflow" in the Actions tab. Runs on the self-hosted
+# runner installed on the Windows Server (see docs/SELF_HOSTED_RUNNER.md).
+on:
+  workflow_dispatch:
+
+# Never let two deploys overlap; don't cancel one mid-flight.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, windows, rex-prod]
+    # Add required reviewers to the "production" environment in repo settings for
+    # a manual approval gate before each deploy.
+    environment: production
+    env:
+      BACKEND_DIR: C:\rex\researcher-explorer\backend
+      WWW_DIR: C:\rex\www
+      SERVICE: RexBackend
+      HEALTH_URL: http://127.0.0.1:8001/api/health
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Deploy frontend to web root
+        # Mirror dist/ into the web root but never delete web.config (the reverse
+        # proxy rules live there). robocopy uses exit codes 0-7 for success.
+        run: |
+          robocopy frontend\dist $env:WWW_DIR /MIR /XF web.config
+          if ($LASTEXITCODE -ge 8) { exit 1 } else { exit 0 }
+
+      - name: Sync backend code
+        # Mirror the app code but preserve the live venv, secrets, and logs.
+        run: |
+          robocopy backend $env:BACKEND_DIR /MIR /XD .venv __pycache__ logs /XF .env
+          if ($LASTEXITCODE -ge 8) { exit 1 } else { exit 0 }
+
+      - name: Update backend dependencies
+        run: |
+          & "$env:BACKEND_DIR\.venv\Scripts\python.exe" -m pip install -r "$env:BACKEND_DIR\requirements.txt"
+
+      - name: Run database migrations
+        run: |
+          Set-Location $env:BACKEND_DIR
+          & "$env:BACKEND_DIR\.venv\Scripts\alembic.exe" upgrade head
+
+      - name: Restart backend service
+        # NSSM-created services are real Windows services, so Restart-Service works
+        # without nssm on PATH. The runner account needs permission to restart it.
+        run: Restart-Service -Name $env:SERVICE -Force
+
+      - name: Health check (fail the deploy if it doesn't come back)
+        run: |
+          $ok = $false
+          for ($i = 1; $i -le 15; $i++) {
+            try {
+              $r = Invoke-RestMethod -Uri $env:HEALTH_URL -TimeoutSec 5
+              if ($r.ok) { $ok = $true; break }
+            } catch { }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $ok) {
+            Write-Error "Backend did not report healthy at $env:HEALTH_URL after restart."
+            exit 1
+          }
+          Write-Host "Backend healthy."

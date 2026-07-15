@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { Core } from "cytoscape";
 import { SearchBar } from "./components/SearchBar";
 import { GraphView } from "./components/GraphView";
@@ -6,7 +6,6 @@ import { SidePanel } from "./components/SidePanel";
 import { FilterPanel } from "./components/FilterPanel";
 import { Toolbar } from "./components/Toolbar";
 import { Legend } from "./components/Legend";
-import { Directory } from "./components/Directory";
 import { api } from "./lib/api";
 import { GraphStore } from "./lib/graphStore";
 import type { EncodingOpts, FilterOpts, GraphPayload, SearchHit } from "./types";
@@ -19,8 +18,8 @@ export default function App() {
   const [expandingId, setExpandingId] = useState<string | null>(null);
   const [loadingRoot, setLoadingRoot] = useState(false);
   const [status, setStatus] = useState<string>("Pick a UM author to begin.");
-  const [showDirectory, setShowDirectory] = useState(false);
-  const prefetchedRef = useRef<Set<string>>(new Set());
+  const [leftOpen, setLeftOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(true);
 
   const [encoding, setEncoding] = useState<EncodingOpts>({
     sizeBy: "degree",
@@ -35,15 +34,21 @@ export default function App() {
   });
 
   const expanded = useMemo(() => store.expanded, [payload]);
+  const selectedName = useMemo(
+    () => (selected ? store.nodes.get(selected)?.data.display_name ?? null : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selected, payload],
+  );
 
-  // Pick from search bar -> reset graph and load depth 1 around the picked author.
+  // Pick from search bar -> reset graph and load just the seed + its direct
+  // collaborators (depth 1). Deeper levels load only when the user expands a node.
   const onPick = useCallback(async (hit: SearchHit) => {
     store.rootId = null;
     store.nodes.clear();
     store.edges.clear();
     store.expanded.clear();
-    prefetchedRef.current.clear();
     setSelected(hit.id);
+    setRightOpen(true);
     setLoadingRoot(true);
     setStatus(`Loading ${hit.display_name}…`);
     try {
@@ -52,7 +57,7 @@ export default function App() {
       store.markExpanded(hit.id);
       setPayload(p);
       setStatus(
-        `Loaded ${p.nodes.length} authors, ${p.edges.length} collaborations. Prefetching depth 2…`,
+        `Loaded ${p.nodes.length} authors, ${p.edges.length} collaborations. Select a node and Expand to grow the network.`,
       );
     } catch (e: any) {
       setStatus(`Error: ${e.message}`);
@@ -61,45 +66,31 @@ export default function App() {
     }
   }, [store]);
 
-  // Background prefetch: depth-1 nodes' collaborators (i.e. extend toward depth 2).
-  // Throttled to avoid hammering OpenAlex.
-  useEffect(() => {
-    if (!payload || !store.rootId) return;
-    const queue: string[] = [];
-    for (const n of store.nodes.values()) {
-      if (n.depth === 1 && !store.expanded.has(n.id) && !prefetchedRef.current.has(n.id)) {
-        queue.push(n.id);
-      }
-    }
-    if (queue.length === 0) return;
-    let cancelled = false;
-
-    (async () => {
-      for (const id of queue) {
-        if (cancelled) return;
-        prefetchedRef.current.add(id);
-        try {
-          const p = await api.expand(id, 1, 25);
-          store.merge(p);
-          store.markExpanded(id);
-          setPayload({ ...p }); // trigger sync; GraphView dedupes
-        } catch {
-          // best-effort
-        }
-        await new Promise((r) => setTimeout(r, 350));
-      }
-      if (!cancelled) setStatus(`Graph complete. ${store.nodes.size} authors loaded.`);
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.rootId]);
-
   const onNodeClick = useCallback((id: string) => {
     setSelected(id);
+    setRightOpen(true);
   }, []);
+
+  // Fill in edges among the nodes already on screen — reveals the real network
+  // around lazily-loaded "one-edge" nodes without expanding the graph outward.
+  const [connecting, setConnecting] = useState(false);
+  const onConnectVisible = useCallback(async () => {
+    const ids = Array.from(store.nodes.keys());
+    if (ids.length < 2 || connecting) return;
+    setConnecting(true);
+    setStatus(`Connecting ${ids.length} visible authors…`);
+    try {
+      const { edges } = await api.connectVisible(ids);
+      const before = store.edges.size;
+      store.merge({ root_id: store.rootId ?? ids[0], nodes: [], edges, truncated: false });
+      setPayload({ root_id: store.rootId ?? ids[0], nodes: [], edges, truncated: false });
+      setStatus(`Added ${store.edges.size - before} links between visible authors.`);
+    } catch (e: any) {
+      setStatus(`Error: ${e.message}`);
+    } finally {
+      setConnecting(false);
+    }
+  }, [store, connecting]);
 
   const onNodeExpand = useCallback(
     async (id: string) => {
@@ -127,30 +118,31 @@ export default function App() {
         <div className="text-sm font-semibold text-slate-200 mr-2">
           UM&nbsp;Researcher<span className="text-accent">·</span>Explorer
         </div>
-        <SearchBar onPick={onPick} />
-        <button
-          onClick={() => setShowDirectory(true)}
-          className="rounded-lg bg-panel2 border border-line px-3 py-2 text-sm text-slate-300 hover:border-accent/60 hover:text-slate-100 whitespace-nowrap"
-        >
-          Browse all
-        </button>
+        <SearchBar onPick={onPick} selectedName={selectedName} />
         <div className="text-xs text-slate-400 ml-auto truncate max-w-[35%]">
           {loadingRoot ? "Loading…" : status}
         </div>
       </header>
-
-      {showDirectory && (
-        <Directory onPick={onPick} onClose={() => setShowDirectory(false)} />
-      )}
 
       <FilterPanel
         encoding={encoding}
         setEncoding={setEncoding}
         filters={filters}
         setFilters={setFilters}
+        open={leftOpen}
+        onToggle={() => setLeftOpen((v) => !v)}
       />
 
-      <Toolbar cy={cy} store={store} panelOpen={selected !== null} />
+      <Toolbar
+        cy={cy}
+        store={store}
+        onConnectVisible={onConnectVisible}
+        connecting={connecting}
+        selectedId={selected}
+        onExpand={onNodeExpand}
+        isExpanded={selected ? expanded.has(selected) : false}
+        isExpanding={selected !== null && expandingId === selected}
+      />
       <Legend encoding={encoding} />
 
       <GraphView
@@ -166,10 +158,11 @@ export default function App() {
 
       <SidePanel
         authorId={selected}
+        cy={cy}
+        store={store}
         onClose={() => setSelected(null)}
-        onExpand={onNodeExpand}
-        isExpanded={selected ? expanded.has(selected) : false}
-        isExpanding={selected !== null && expandingId === selected}
+        open={rightOpen}
+        onToggle={() => setRightOpen((v) => !v)}
       />
     </div>
   );

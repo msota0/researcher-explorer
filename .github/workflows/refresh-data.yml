@@ -1,0 +1,46 @@
+name: Refresh data
+
+# Re-import UM authors from OpenAlex and re-warm the collaborator cache.
+# Kept separate from Deploy because it is slow and hits OpenAlex — you don't want
+# it running on every code deploy.
+on:
+  workflow_dispatch:
+    inputs:
+      from_snapshot:
+        description: "Reload authors from the existing snapshot instead of OpenAlex"
+        type: boolean
+        default: false
+      force_prewarm:
+        description: "Rebuild the whole collaborator cache from scratch"
+        type: boolean
+        default: false
+  # Uncomment to also refresh on a schedule (07:00 UTC on the 1st of each month):
+  # schedule:
+  #   - cron: "0 7 1 * *"
+
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: [self-hosted, windows, rex-prod]
+    env:
+      BACKEND_DIR: C:\rex\researcher-explorer\backend
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Import authors
+        run: |
+          Set-Location $env:BACKEND_DIR
+          $py = "$env:BACKEND_DIR\.venv\Scripts\python.exe"
+          if ("${{ inputs.from_snapshot }}" -eq "true") { & $py -m app.importer --from-snapshot }
+          else { & $py -m app.importer }
+
+      - name: Pre-warm collaborator cache
+        run: |
+          Set-Location $env:BACKEND_DIR
+          $py = "$env:BACKEND_DIR\.venv\Scripts\python.exe"
+          if ("${{ inputs.force_prewarm }}" -eq "true") { & $py -m app.prewarm --force }
+          else { & $py -m app.prewarm }

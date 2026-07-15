@@ -1,0 +1,3 @@
+# Dev/CI-only tools (not needed at runtime).
+-r requirements.txt
+ruff==0.8.4

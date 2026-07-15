@@ -7,38 +7,47 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
+from .config import UM_INSTITUTION_NAME
 from .db_models import Author, Collaborator
+from .merge import get_merge_map
 
 
 def search_authors(db: Session, query: str, limit: int = 10) -> list[dict]:
     """Partial name search across the UM dataset, ranked by output."""
+    mm = get_merge_map(db)
     like = f"%{query}%"
+    conds = [
+        Author.display_name.ilike(like),
+        Author.last_known_institution_name == UM_INSTITUTION_NAME,
+    ]
+    if mm.alias_ids:
+        conds.append(Author.id.not_in(mm.alias_ids))
     stmt = (
-        select(Author)
-        .where(Author.display_name.ilike(like))
-        .order_by(Author.works_count.desc())
-        .limit(limit)
+        select(Author).where(*conds).order_by(Author.works_count.desc()).limit(limit)
     )
     rows = db.scalars(stmt).all()
-    return [
-        {
-            "id": a.id,
-            "display_name": a.display_name,
-            "works_count": a.works_count,
-            "cited_by_count": a.cited_by_count,
-            "h_index": a.h_index,
-            "orcid": a.orcid,
-            "last_known_institution": (
-                {
-                    "id": a.last_known_institution_id,
-                    "display_name": a.last_known_institution_name,
-                }
-                if a.last_known_institution_id
-                else None
-            ),
-        }
-        for a in rows
-    ]
+    out = []
+    for a in rows:
+        ov = mm.stats.get(a.id)
+        out.append(
+            {
+                "id": a.id,
+                "display_name": a.display_name,
+                "works_count": ov["works_count"] if ov else a.works_count,
+                "cited_by_count": ov["cited_by_count"] if ov else a.cited_by_count,
+                "h_index": ov["h_index"] if ov else a.h_index,
+                "orcid": a.orcid,
+                "last_known_institution": (
+                    {
+                        "id": a.last_known_institution_id,
+                        "display_name": a.last_known_institution_name,
+                    }
+                    if a.last_known_institution_id
+                    else None
+                ),
+            }
+        )
+    return out
 
 
 def list_authors(
@@ -57,25 +66,33 @@ def list_authors(
     }.get(sort, Author.works_count)
     order = sort_col.asc() if sort == "display_name" else sort_col.desc()
 
-    total = db.scalar(select(func.count()).select_from(Author)) or 0
+    mm = get_merge_map(db)
+    conds = [Author.last_known_institution_name == UM_INSTITUTION_NAME]
+    if mm.alias_ids:
+        conds.append(Author.id.not_in(mm.alias_ids))
+
+    total = db.scalar(select(func.count()).select_from(Author).where(*conds)) or 0
     rows = db.scalars(
-        select(Author).order_by(order).limit(limit).offset(offset)
+        select(Author).where(*conds).order_by(order).limit(limit).offset(offset)
     ).all()
+    items = []
+    for a in rows:
+        ov = mm.stats.get(a.id)
+        items.append(
+            {
+                "id": a.id,
+                "display_name": a.display_name,
+                "works_count": ov["works_count"] if ov else a.works_count,
+                "cited_by_count": ov["cited_by_count"] if ov else a.cited_by_count,
+                "h_index": ov["h_index"] if ov else a.h_index,
+                "last_known_institution_name": a.last_known_institution_name,
+            }
+        )
     return {
         "total": total,
         "limit": limit,
         "offset": offset,
-        "items": [
-            {
-                "id": a.id,
-                "display_name": a.display_name,
-                "works_count": a.works_count,
-                "cited_by_count": a.cited_by_count,
-                "h_index": a.h_index,
-                "last_known_institution_name": a.last_known_institution_name,
-            }
-            for a in rows
-        ],
+        "items": items,
     }
 
 

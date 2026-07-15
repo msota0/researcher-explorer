@@ -1,0 +1,10 @@
+# Conservative, non-noisy lint config. Tighten `select` later if you want more.
+target-version = "py312"
+line-length = 100
+
+[lint]
+select = ["E", "F", "W", "I"]  # pycodestyle errors/warnings, pyflakes, import sort
+ignore = ["E501"]              # don't fail CI purely on line length
+
+[lint.per-file-ignores]
+"alembic/versions/*" = ["E", "W", "I"]  # generated migrations

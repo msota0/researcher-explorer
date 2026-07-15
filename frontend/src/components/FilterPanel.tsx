@@ -5,11 +5,45 @@ interface Props {
   setEncoding: (e: EncodingOpts) => void;
   filters: FilterOpts;
   setFilters: (f: FilterOpts) => void;
+  open: boolean;
+  onToggle: () => void;
 }
 
-export function FilterPanel({ encoding, setEncoding, filters, setFilters }: Props) {
+export function FilterPanel({
+  encoding,
+  setEncoding,
+  filters,
+  setFilters,
+  open,
+  onToggle,
+}: Props) {
+  if (!open) {
+    return (
+      <button
+        onClick={onToggle}
+        title="Show filters panel"
+        className="absolute left-3 top-16 z-10 flex items-center gap-2 bg-panel/90 backdrop-blur border border-line rounded-lg px-3 py-2 text-xs font-medium text-slate-200 hover:bg-line/50"
+      >
+        <span className="text-accent">›</span> Filters
+      </button>
+    );
+  }
+
   return (
     <div className="absolute left-3 top-16 w-[260px] bg-panel/90 backdrop-blur border border-line rounded-lg p-3 z-10 text-sm">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-xs uppercase tracking-wider text-slate-500">
+          Filters
+        </div>
+        <button
+          onClick={onToggle}
+          title="Collapse filters panel"
+          className="flex items-center gap-1 rounded-md bg-panel2 border border-line hover:bg-line/60 text-[11px] text-slate-300 px-2 py-1 leading-none"
+        >
+          Hide <span className="text-accent">‹</span>
+        </button>
+      </div>
+
       <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">
         Encoding
       </div>

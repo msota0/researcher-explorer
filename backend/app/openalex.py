@@ -6,6 +6,7 @@ talks to OpenAlex for things not in the dataset, i.e. live collaborator lookups.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections import Counter, defaultdict
 
 import httpx
@@ -14,7 +15,36 @@ from .config import (
     MAX_COLLABORATORS_PER_AUTHOR,
     OPENALEX_BASE,
     OPENALEX_MAILTO,
+    OPENALEX_MAX_RPS,
 )
+
+
+class _RateLimiter:
+    """Process-wide async token spacer: at most `rate` requests per second.
+
+    Serializes only the *scheduling* of requests (spaced by 1/rate); the HTTP
+    calls themselves still overlap. Shared by live graph fetches and the offline
+    prewarm so nothing in this process exceeds the polite-pool ceiling.
+    """
+
+    def __init__(self, rate_per_sec: float) -> None:
+        self._interval = 1.0 / rate_per_sec if rate_per_sec > 0 else 0.0
+        self._lock = asyncio.Lock()
+        self._next = 0.0
+
+    async def acquire(self) -> None:
+        if self._interval <= 0:
+            return
+        async with self._lock:
+            now = time.monotonic()
+            wait = self._next - now
+            if wait > 0:
+                await asyncio.sleep(wait)
+                now = time.monotonic()
+            self._next = max(now, self._next) + self._interval
+
+
+_rate_limiter = _RateLimiter(OPENALEX_MAX_RPS)
 
 
 def short_id(openalex_id: str) -> str:
@@ -36,6 +66,7 @@ async def _get_json(client: httpx.AsyncClient, path: str, **params) -> dict:
     attempts = 0
     while True:
         attempts += 1
+        await _rate_limiter.acquire()
         r = await client.get(path, params=params)
         if r.status_code == 429 and attempts <= 4:
             await asyncio.sleep(2 ** attempts)

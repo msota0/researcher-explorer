@@ -4,9 +4,19 @@ from sqlalchemy.orm import Session
 from .. import graph
 from ..config import MAX_COLLABORATORS_PER_AUTHOR
 from ..db import get_session
-from ..models import GraphPayload
+from ..models import GraphLinks, GraphPayload
 
 router = APIRouter(prefix="/api/graph", tags=["graph"])
+
+
+@router.get("/links", response_model=GraphLinks)
+async def links(
+    ids: str = Query(..., description="Comma-separated author ids already in the graph"),
+    db: Session = Depends(get_session),
+):
+    """Edges among the given nodes only — fills in connections, adds no nodes."""
+    id_list = [x for x in ids.split(",") if x.strip()]
+    return await graph.internal_links(db, id_list)
 
 
 @router.get("/expand", response_model=GraphPayload)
