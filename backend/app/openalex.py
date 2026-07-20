@@ -6,6 +6,7 @@ talks to OpenAlex for things not in the dataset, i.e. live collaborator lookups.
 from __future__ import annotations
 
 import asyncio
+import random
 import time
 from collections import Counter, defaultdict
 
@@ -15,6 +16,7 @@ from .config import (
     MAX_COLLABORATORS_PER_AUTHOR,
     OPENALEX_BASE,
     OPENALEX_MAILTO,
+    OPENALEX_MAX_RETRIES,
     OPENALEX_MAX_RPS,
 )
 
@@ -43,6 +45,18 @@ class _RateLimiter:
                 now = time.monotonic()
             self._next = max(now, self._next) + self._interval
 
+    async def pause(self, seconds: float) -> None:
+        """Globally defer the *next* allowed request by `seconds`.
+
+        Called when OpenAlex returns 429: instead of each coroutine backing off
+        on its own (which lets them all retry together and re-trip the limit),
+        we push the shared schedule forward so every in-flight and queued
+        request waits out the cooldown as one. Uses max() so concurrent 429s
+        collapse into a single cooldown rather than stacking.
+        """
+        async with self._lock:
+            self._next = max(self._next, time.monotonic() + seconds)
+
 
 _rate_limiter = _RateLimiter(OPENALEX_MAX_RPS)
 
@@ -62,14 +76,32 @@ def _client() -> httpx.AsyncClient:
     )
 
 
+def _retry_after_seconds(value: str | None) -> float | None:
+    """Parse a Retry-After header. OpenAlex sends an integer number of seconds;
+    fall back to None (caller uses exponential backoff) for anything else."""
+    if not value:
+        return None
+    try:
+        return max(0.0, float(value.strip()))
+    except ValueError:
+        return None  # HTTP-date form: ignore, let the caller back off instead
+
+
 async def _get_json(client: httpx.AsyncClient, path: str, **params) -> dict:
     attempts = 0
     while True:
         attempts += 1
         await _rate_limiter.acquire()
         r = await client.get(path, params=params)
-        if r.status_code == 429 and attempts <= 4:
-            await asyncio.sleep(2 ** attempts)
+        if r.status_code == 429 and attempts <= OPENALEX_MAX_RETRIES:
+            # Prefer the server's Retry-After; otherwise exponential backoff
+            # capped at 60s. Add jitter so many crawls don't resume in lockstep.
+            hinted = _retry_after_seconds(r.headers.get("Retry-After"))
+            backoff = hinted if hinted is not None else min(60.0, 2.0 ** attempts)
+            backoff += random.uniform(0, 1.0)
+            # Pause the whole process, not just this coroutine, so we actually
+            # let the rate limit recover instead of hammering it in parallel.
+            await _rate_limiter.pause(backoff)
             continue
         r.raise_for_status()
         return r.json()

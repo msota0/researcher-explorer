@@ -35,6 +35,14 @@ MAX_COLLABORATORS_PER_AUTHOR = int(os.getenv("MAX_COLLABORATORS_PER_AUTHOR", "40
 # the collaborator cache (see app.prewarm) is a single process and stays exact.
 OPENALEX_MAX_RPS = float(os.getenv("OPENALEX_MAX_RPS", "8"))
 
+# How many times to retry a single request that comes back 429 before giving up.
+# Each retry honors the server's Retry-After (or backs off exponentially, capped
+# at 60s) and pauses the whole process, so a high ceiling here lets a long batch
+# run (app.prewarm) ride out an extended throttle instead of shedding thousands
+# of authors. Raise OPENALEX_MAX_RETRIES / lower OPENALEX_MAX_RPS if prewarm
+# still sees 429s on your network.
+OPENALEX_MAX_RETRIES = int(os.getenv("OPENALEX_MAX_RETRIES", "8"))
+
 # Comma-separated allowed CORS origins for the hosted frontend. When the
 # frontend is served same-origin (e.g. via IIS reverse proxy) CORS is not used
 # at all; this only matters if the frontend is on a different origin.
